@@ -76,6 +76,37 @@ Die ursprüngliche Architektur-Wahl unten beruhte auf der Annahme, eine Dritt-Ap
 
 **Konsequenz:** Ein In-Call-Live-Mechanismus (Mithören *oder* Ansage ins Gespräch) ist **als regelkonforme Dritt-App auf keiner der beiden Plattformen tragfähig**. Die Audio-Session-Arbitrierung blockiert ihn auf OS-Ebene — nicht bloß undokumentiert, sondern dokumentiert und durchgesetzt. Quellen siehe Datei [`10_fraud_landscape_research.md`](10_fraud_landscape_research.md)-Methodik und das technische Verifikations-Arbeitspaket; Kernbelege: Apple Audio Session Programming Guide / `interruptionNotification`; Apple Developer Forums (kein öffentliches API, FB18434531); Android „Sharing audio input" und AOSP „Concurrent capture"; Google-Play-Policy zum Accessibility-Call-Recording-Verbot (2022).
 
+### Übersicht 
+
+|#|Mechanismus|Beispiel-Apps|Bekommt den Gesprächsinhalt?|Wo läuft die Analyse?|Für dich nutzbar?|
+|---|---|---|---|---|---|
+|1|**Rufumleitung in die Cloud** (bedingte Weiterleitung → Server-Bot)|RoboKiller, YouMail, Truecaller Assistant, **Gini**|✅ voll|☁️ Cloud|✅ (= dein VoIP-Weg, aber Cloud)|
+|2|**Dreier-Konferenz auf Aufnahme-Leitung**|TapeACall, viele iOS-Recorder|✅ voll|☁️ Cloud|⚠️ manuell, nicht echtzeit|
+|3|**Netz-/Carrier-seitige Analyse**|Hiya (Samsung Smart Call, AT&T)|❌ nur Label/Reputation|📡 Mobilfunknetz|❌ braucht Carrier-Deal|
+|4|**Nur Metadaten + Reputations-DB**|Truecaller, Hiya, Clever Dialer|❌ nur Nummer|Gerät/Cloud|✅ aber inhaltsblind|
+|5|**Privilegierte System-/OEM-Funktion**|Pixel Call Screen/Live Caption, **Samsung Bixby Text Call**, iOS 18|✅ voll, **lokal, Echtzeit**|📱 on-device|❌ nur OEM/OS|
+|6|**Root / Shizuku / ADB-privilegiert**|BCR, ACR Phone Helper (Shizuku)|✅ voll (beide Seiten)|📱 on-device|✅ für Studiengeräte|
+|7|**Accessibility-Aufnahme**|Cube ACR (älter), ACR|⚠️ meist nur eigene Stimme|📱 on-device|❌ unzuverlässig, Play-verboten|
+|8|**VoIP-eigene App** (Audio gehört der App)|WhatsApp/Signal, Softphones|✅ voll, lokal|📱 on-device|✅ (= dein VoIP-Dialer)|
+
+## Die Mechanismen im Detail
+
+**1 — Rufumleitung in die Cloud.** Der Standardweg der „KI-Anrufschützer". Per _bedingter Rufumleitung_ (Carrier-Codes) gehen abgelehnte/unbeantwortete Anrufe an die Server des Anbieters; dort läuft Spracherkennung + KI + Sprachausgabe, das Gerät bekommt nur Transkript/Risiko-Score zurück. RoboKiller braucht explizit „Conditional Call Forwarding", YouMail _ersetzt deine Mailbox_. **Das ist exakt der Gini-Mechanismus** — und derselbe Trick wie dein VoIP-Weg, nur dass die Analyse in der **Cloud** statt auf dem Gerät passiert.
+
+**2 — Dreier-Konferenz.** Genau deine frühere „Teilnehmer einladen"-Idee, gelöst über einen Server: [TapeACall](https://www.tapeacall.com/blog/how-to-record-iphone-calls-the-comprehensive-guide) startet einen zweiten Anruf zur eigenen Aufnahme-Nummer und _merged_ ihn als dritten Konferenzteilnehmer; diese Leitung zeichnet auf. Funktioniert auf iOS, weil Konferenz-Calls über die CallKit-UI erlaubt sind — aber manuell pro Anruf und nicht für Echtzeit-Warnungen geeignet.
+
+**3 — Netz-/Carrier-seitig.** [Hiya](https://www.hiya.com/samsung/products-smart-call) (hinter Samsung Smart Call und AT&T Call Protect) analysiert **im Netz** des Carriers, pro Anruf, anhand von Mustern im Netzwerkverkehr — das Gerät bekommt nur die Kategorie („Verdacht auf Betrug"). **Kein Audio-Zugriff auf dem Gerät**, dafür eine Carrier-Partnerschaft nötig.
+
+**4 — Nur Metadaten.** Die meisten „Spam-Blocker" (Truecaller etc.) gleichen nur die _Nummer_ gegen riesige Crowd-Datenbanken ab und nutzen `CallScreeningService` (Android) bzw. `CallDirectory` (iOS), um vor dem Klingeln zu blocken/labeln. Smooth und Store-konform — fängt aber **keine** inhaltsbasierten Schock-/Enkeltrick-Anrufe mit gespoofter/unbekannter Nummer.
+
+**5 — Privilegierte System-Funktion — der wichtigste Vergleich für dich.** **Samsung Bixby Text Call** ist quasi _dein Use-Case in fertig_: es nimmt Anrufe an, **transkribiert die Gegenseite in Echtzeit komplett on-device** („On-Device Bixby … without transferring any data online"). Genauso Pixel Live Caption/Call Screen und iOS 18.1 (Aufnahme + Transkript **lokal** via Apple Intelligence). **Das beweist: dein Ziel ist technisch real — aber nur das OEM/Betriebssystem darf es.** Für Dritte gesperrt.
+
+**6 — Root / Shizuku.** [BCR](https://github.com/chenxiaolong/BCR) und ACR Phone Helper bekommen _echtes Zwei-Wege-Audio_ lokal, indem sie sich die privilegierte Berechtigung `CAPTURE_AUDIO_OUTPUT` per Root **oder Shizuku** holen. **Shizuku ist hier interessant für dich:** es erteilt App-Komponenten ADB-/Shell-Rechte **ohne Root**, über einen einmaligen ADB-Befehl. Für Endnutzer/Ältere zu fummelig — aber für **deine eigenen Studien-/Testgeräte** ein gangbarer Weg zu sauberem Zwei-Wege-Audio, lokal, ohne Custom-ROM.
+
+**7 — Accessibility.** Wie früher diskutiert: auf modernem Android meist nur die eigene Stimme, seit Mai 2022 im Play Store verboten (Sideload geht). Unzuverlässig.
+
+**8 — VoIP-eigene App.** Signal/WhatsApp besitzen ihr Anruf-Audio (self-managed `ConnectionService`); ein Softphone genauso. **Das ist dein VoIP-Dialer-Weg** — der einzige, der vollen Inhalt + lokale Analyse + Geräteunabhängigkeit kombiniert.
+
 ### Korrigierte Architektur-Wahl für Schicht 3
 
 Schicht 3 wird in zwei Realisierungsstufen getrennt:
